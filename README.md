@@ -25,4 +25,4 @@ Port number to listen, default is 19813.
 
 duration (LONGINT)
 
-Number of seconds to listen, default is 2.
+Number of seconds to listen, default is 1.
