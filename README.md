@@ -3,6 +3,20 @@
 
 Listens to UDP packet broadcast by 4D Server.
 
+##Platform
+
+| carbon | cocoa | win32 | win64 |
+|:------:|:-----:|:---------:|:---------:|
+|🆗|🚫|🆗|🆗|
+
+Commands
+---
+
+```c
+// --- Client
+UDP_GET_SERVER_LIST
+```
+
 Usage
 -----
 UDP GET SERVER LIST (addresses; hosts; names; port; duration)
