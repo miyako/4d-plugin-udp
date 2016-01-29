@@ -17,26 +17,15 @@ Commands
 UDP_GET_SERVER_LIST
 ```
 
-Usage
------
-UDP GET SERVER LIST (addresses; hosts; names; port; duration)
+Examples
+---
 
-addresses (ARRAY)
-
-IPv4 addresses of 4D Servers.
-
-hosts (ARRAY)
-
-Computer names of 4D Servers.
-
-names (ARRAY)
-
-Publish names of 4D Servers.
-
-port (LONGINT)
-
-Port number to listen, default is 19813.
-
-duration (LONGINT)
-
-Number of seconds to listen, default is 1.
+```
+If (True)
+UDP GET SERVER LIST ($p1;$p2;$p3)
+Else 
+$wait:=1
+$port:=19813
+UDP GET SERVER LIST ($p1;$p2;$p3;$wait;$port)
+End if 
+```
