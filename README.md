@@ -30,4 +30,4 @@ UDP GET SERVER LIST ($p1;$p2;$p3;$wait;$port)
 End if 
 ```
 
-By default the wait is ``1`` seconds and the port is ``19813`` i.e. ``0x4D65``.
+By default the wait is ``1`` second and the port is ``19813`` i.e. ``0x4D65``.
