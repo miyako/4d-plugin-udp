@@ -14,7 +14,7 @@ Commands
 
 ```c
 // --- Client
-UDP_GET_SERVER_LIST
+UDP GET SERVER LIST
 ```
 
 Examples
