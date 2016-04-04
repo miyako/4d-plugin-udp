@@ -7,7 +7,7 @@ Listens to UDP packet broadcast by 4D Server.
 
 | carbon | cocoa | win32 | win64 |
 |:------:|:-----:|:---------:|:---------:|
-|🆗|🚫|🆗|🆗|
+|🆗|🆗|🆗|🆗|
 
 Commands
 ---
