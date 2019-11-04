@@ -1,1 +1,11 @@
-﻿{"name":"UDP","id":20000,"commands":[{"theme":"Client","syntax":"UDP GET SERVER LIST(&Y;&Y;&Y;&L;&L)"}]}
+{
+    "name": "UDP",
+    "id": 20000,
+    "commands": [
+        {
+            "theme": "Client",
+            "syntax": "UDP GET SERVER LIST(&Y;&Y;&Y;&L;&L)",
+            "threadSafe": false
+        }
+    ]
+}
