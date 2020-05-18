@@ -42,10 +42,12 @@
 typedef int sock_t;
 typedef int broadcast_t;
 typedef socklen_t addrlen_t;
+typedef ssize_t recvlen_t;
 #else
 typedef SOCKET sock_t;
 typedef char broadcast_t;
 typedef int addrlen_t;
+typedef int recvlen_t;
 #endif
 
 #define CMD_Get_database_localization 1009

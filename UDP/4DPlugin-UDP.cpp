@@ -167,10 +167,12 @@ void UDP_Get_server_list(PA_PluginParameters params) {
     strcpy(&msg[32], "4D Server II");
     
     struct timeval tv;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;//0.1 sec.
     
     int reuse = true;
+    
+    recvlen_t recvlen;
     
 #if SUPPORT_IPv6
         if ((sock = socket (AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) != -1) {
@@ -197,8 +199,8 @@ void UDP_Get_server_list(PA_PluginParameters params) {
                 
                 char buf[PAYLOAD_LENGTH];
                 struct sockaddr_in6 remaddr;
-
-                ssize_t recvlen;
+                
+                time_t startTime = time(0);
                 
                 do{
                     
@@ -214,7 +216,7 @@ void UDP_Get_server_list(PA_PluginParameters params) {
                         
                     }
                     
-                }while(recvlen > 0);
+                }while(abs(anchorTime - now) < wait);
                 
             }
             
@@ -258,21 +260,10 @@ void UDP_Get_server_list(PA_PluginParameters params) {
             struct sockaddr_in remaddr;
 
 			time_t startTime = time(0);
-			time_t anchorTime = startTime;
-			time_t now, elapsedTime;
-
-            int recvlen;
 
             do{
-                
-				now = time(0);
-				elapsedTime = abs(startTime - now);
 
-				if (elapsedTime > 0)
-				{
-					startTime = now;
-					PA_YieldAbsolute();
-				}
+                PA_YieldAbsolute();
                 
                 addrlen_t addrlen = sizeof (remaddr);
                 
@@ -284,7 +275,7 @@ void UDP_Get_server_list(PA_PluginParameters params) {
  
                 }
                 
-            }while(abs(anchorTime - now) < wait);
+            }while(abs(startTime - time(0)) < wait);
             
         }
         
