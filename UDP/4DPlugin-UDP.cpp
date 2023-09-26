@@ -182,8 +182,12 @@ void UDP_Get_server_list(PA_PluginParameters params) {
             if (setsockopt (sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) == 0) {
             
                 setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-                setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO , &tv, sizeof tv);
-                            
+#if VERSIONMAC  
+                setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+#else
+                DWORD dw = (tv.tv_sec * 1000) + ((tv.tv_usec + 999) / 1000);
+                setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&dw, sizeof(dw));
+#endif                            
                 struct sockaddr_in6 sockaddr;
                 memset(&sockaddr, 0, sizeof(sockaddr));
 #if VERSIONMAC                      
@@ -191,7 +195,6 @@ void UDP_Get_server_list(PA_PluginParameters params) {
 #endif
                 sockaddr.sin6_family = AF_INET6;
                 
-    //            sockaddr.sin6_addr=in6addr_any;
                 memcpy(&(sockaddr.sin6_addr), &in6addr_any, sizeof(sockaddr.sin6_addr));
                 sockaddr.sin6_port = htons(port);
                 
@@ -232,18 +235,19 @@ void UDP_Get_server_list(PA_PluginParameters params) {
         if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) == 0) {
 
             setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse));
+
+#if VERSIONMAC  
             setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO , (const char *)&tv, sizeof (tv));
-                        
+#else
+            DWORD dw = (tv.tv_sec * 1000) + ((tv.tv_usec + 999) / 1000);
+            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&dw, sizeof(dw));
+#endif
             struct sockaddr_in sockaddr;
             memset(&sockaddr, 0, sizeof(sockaddr));
 #if VERSIONMAC            
             sockaddr.sin_len = sizeof(sockaddr);
 #endif
             sockaddr.sin_family = AF_INET;
-            
-            /*this will return 127.0.0.1 for localhost*/
-//            sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-            
             sockaddr.sin_port = htons(port);
             
             char *ip = (char *)"255.255.255.255";
@@ -251,7 +255,7 @@ void UDP_Get_server_list(PA_PluginParameters params) {
 #if VERSIONMAC
             inet_aton (ip, (in_addr *)&sockaddr.sin_addr.s_addr);
 #else
-			sockaddr.sin_addr.s_addr = inet_addr(ip);
+            inet_pton(AF_INET, ip, (in_addr*)&sockaddr.sin_addr.s_addr);
 #endif
             
             sendto (sock, msg, PAYLOAD_LENGTH, 0, (struct sockaddr*) &sockaddr, sizeof(sockaddr));
