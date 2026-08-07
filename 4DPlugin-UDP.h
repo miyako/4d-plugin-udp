@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+#include <cmath>
 
 #if VERSIONMAC
 typedef int sock_t;

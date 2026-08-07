@@ -64,11 +64,17 @@ void PluginMain(PA_long32 selector, PA_PluginParameters params) {
 
 static void receivePayloadFromServer(char *buf, void *remaddr, PA_CollectionRef returnValue, BOOL ipv6 = false) {
     
-    std::vector<char>host(STR31LEN);
+    // buf is PAYLOAD_LENGTH (96) bytes total, laid out as a 64-byte host field
+    // followed by a 32-byte name field (see the &buf[64] offset below) - HOSTLEN
+    // must match that 64-byte field width, not STR31LEN, or a legitimate
+    // (or crafted) reply with a host name > 31 chars overflows the buffer.
+    const size_t HOSTLEN = 64;
+    
+    std::vector<char>host(HOSTLEN);
     std::vector<char>name(STR31LEN);
     std::vector<char>addr(INET6_ADDRSTRLEN);
             
-    memset(&host[0], 0, STR31LEN);
+    memset(&host[0], 0, HOSTLEN);
     memset(&name[0], 0, STR31LEN);
     memset(&addr[0], 0, INET6_ADDRSTRLEN);
     
@@ -80,11 +86,17 @@ static void receivePayloadFromServer(char *buf, void *remaddr, PA_CollectionRef 
         inet_ntop(AF_INET6, &(remaddr6->sin6_addr), (char *)&addr[0], INET6_ADDRSTRLEN);
     }else{
         remaddr4 = (sockaddr_in  *)remaddr;
-        strcpy (&addr[0], inet_ntoa(remaddr4->sin_addr));
+        inet_ntop(AF_INET, &(remaddr4->sin_addr), (char *)&addr[0], INET6_ADDRSTRLEN);
     }
     
-    strcpy (&host[0], &buf[0]);
-    strcpy (&name[0], &buf[64]);
+    // buf comes from an unauthenticated UDP reply and is not guaranteed to be
+    // null-terminated within either field's width. Use bounded copies and
+    // force termination explicitly instead of trusting a terminator to be
+    // present in attacker-reachable network data.
+    strncpy (&host[0], &buf[0], HOSTLEN - 1);
+    host[HOSTLEN - 1] = '\0';
+    strncpy (&name[0], &buf[64], STR31LEN - 1);
+    name[STR31LEN - 1] = '\0';
     
     char uname[48];
     memset(uname, 0, 48);
@@ -141,6 +153,9 @@ static void receivePayloadFromServer(char *buf, void *remaddr, PA_CollectionRef 
 void UDP_Get_server_list(PA_PluginParameters params) {
     
     PA_CollectionRef returnValue = PA_CreateCollection();
+    
+    try {
+    
     PA_ObjectRef options = PA_GetObjectParameter(params, 1);
     
     int port = 19813;
@@ -148,14 +163,14 @@ void UDP_Get_server_list(PA_PluginParameters params) {
     
     if(options) {
         
-        int _port = (int)ob_get_n(options, L"port");
-        if(_port > 0) {
-            port = _port;
+        double _port_d = ob_get_n(options, L"port");
+        if(std::isfinite(_port_d) && _port_d > 0 && _port_d <= 65535) {
+            port = (int)_port_d;
         }
         
-        int _wait = (int)ob_get_n(options, L"wait");
-        if(_wait > 0) {
-            wait = _wait;
+        double _wait_d = ob_get_n(options, L"wait");
+        if(std::isfinite(_wait_d) && _wait_d > 0 && _wait_d <= 3600) {
+            wait = (int)_wait_d;
         }
         
     }
@@ -211,15 +226,16 @@ void UDP_Get_server_list(PA_PluginParameters params) {
                     
                     addrlen_t addrlen = sizeof (remaddr);
                     
+                    memset(buf, 0, PAYLOAD_LENGTH);
                     recvlen = recvfrom (sock, buf, PAYLOAD_LENGTH, 0, (struct sockaddr *)&remaddr, &addrlen);
                                     
-                    if (recvlen > 0){
+                    if (recvlen == PAYLOAD_LENGTH){
                         
                         receivePayloadFromServer(buf, &remaddr, returnValue, true);
                         
                     }
                     
-                }while(abs(anchorTime - now) < wait);
+                }while(abs(startTime - time(0)) < wait);
                 
             }
             
@@ -250,7 +266,7 @@ void UDP_Get_server_list(PA_PluginParameters params) {
             sockaddr.sin_family = AF_INET;
             sockaddr.sin_port = htons(port);
             
-            char *ip = (char *)"255.255.255.255";
+            const char *ip = "255.255.255.255";
             
 #if VERSIONMAC
             inet_aton (ip, (in_addr *)&sockaddr.sin_addr.s_addr);
@@ -271,9 +287,14 @@ void UDP_Get_server_list(PA_PluginParameters params) {
                 
                 addrlen_t addrlen = sizeof (remaddr);
                 
+                memset(buf, 0, PAYLOAD_LENGTH);
                 recvlen = recvfrom (sock, buf, PAYLOAD_LENGTH, 0, (struct sockaddr *)&remaddr, &addrlen);
                 
-                if (recvlen > 0){
+                // Only treat the reply as a valid fixed-format payload if it's
+                // exactly the expected size - a short/truncated datagram would
+                // otherwise leave part of buf as unfilled (now zeroed, but
+                // still not real data) for receivePayloadFromServer to parse.
+                if (recvlen == PAYLOAD_LENGTH){
 
                     receivePayloadFromServer(buf, &remaddr, returnValue);
  
@@ -284,6 +305,14 @@ void UDP_Get_server_list(PA_PluginParameters params) {
         }
         
         close (sock);
+    }
+    
+    } catch(...) {
+        // Fall through to PA_ReturnCollection below with whatever was
+        // gathered so far - manifest.json declares this command returns a
+        // Collection (":C"), so any path that doesn't call PA_ReturnCollection
+        // leaves the host 4D process waiting indefinitely for a value that
+        // will never arrive, which is a hang, not just a swallowed error.
     }
     
     PA_ReturnCollection(params, returnValue);
