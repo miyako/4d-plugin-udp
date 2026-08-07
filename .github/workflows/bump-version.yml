@@ -26,7 +26,7 @@ permissions:
 
 env:
   # ---- edit these two per-project ----
-  XCODE_PROJECT: PRNG.xcodeproj
+  XCODE_PROJECT: UDP.xcodeproj
   # -------------------------------------
 
 jobs:
