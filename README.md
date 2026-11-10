@@ -5,6 +5,9 @@
 
 # 4d-plugin-udp
 
+Source version maintenance and release publication are separate manual workflows;
+see [workflow operation and safeguards](.github/WORKFLOWS.md).
+
 The UDP plugin discovers 4D Server instances on the local network by broadcasting a UDP discovery packet and collecting the replies it receives within a time window. It exposes a single command, `UDP Get server list`, which returns a `Collection` of `Object`, one per server that responded.
 
 | Command | Returns | Purpose |
