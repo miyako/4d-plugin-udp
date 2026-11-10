@@ -180,10 +180,13 @@ result = subprocess.run([{real_git!r}, *args])
 sys.exit(result.returncode)
 """)
         wrapper.chmod(0o755)
+        upload_pack = shutil.which("git-upload-pack") or (
+            Path(subprocess.check_output([real_git, "--exec-path"], text=True).strip())
+            / "git-upload-pack")
+        self.assertTrue(Path(upload_pack).is_file(), str(upload_pack))
         for name, executable in (
                 ("python3", sys.executable),
-                ("git-upload-pack", Path(subprocess.check_output(
-                    [real_git, "--exec-path"], text=True).strip()) / "git-upload-pack")):
+                ("git-upload-pack", upload_pack)):
             (tools / name).symlink_to(executable)
         for kind in ("advance", "rewind", "delete", "same-result"):
             with self.subTest(kind=kind):
@@ -200,7 +203,7 @@ sys.exit(result.returncode)
                                   })
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 calls = [json.loads(line) for line in log.read_text().splitlines()]
-                self.assertEqual(sum("push" in call for call in calls), 1)
+                self.assertEqual(sum("push" in call for call in calls), 1, result.stderr)
                 self.assertEqual(sum(call[:3] == ["ls-remote", "--refs", "origin"]
                                      for call in calls), 2)
                 if kind == "delete":
