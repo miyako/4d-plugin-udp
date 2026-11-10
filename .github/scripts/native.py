@@ -1,5 +1,8 @@
 """UDP's exact native outputs, selective cleanup, and publication resource gate."""
 
+import sys
+sys.dont_write_bytecode = True
+
 import argparse
 import json
 import math
@@ -9,7 +12,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 
 
 PRODUCT = "UDP"

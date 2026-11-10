@@ -10,6 +10,7 @@ import sys
 from unittest.mock import patch
 
 from helper_support import Fixture, GitFixture, ROOT, source
+from native_support import STUB as NATIVE_STUB
 import native
 import release
 import yaml
@@ -318,6 +319,71 @@ class PublicationCLITests(GitFixture):
         self.assertTrue(all(call["endpoint"].startswith(UPLOAD + "?name=UDP-")
                             for call in calls[-2:]))
 
+    def test_extracted_native_workflow_real_metadata_without_bytecode_environment_then_publish(self):
+        generated = self.build()
+        self.assertEqual((self.local / ".github/scripts/source_version.py").read_bytes(),
+                         (ROOT / ".github/scripts/source_version.py").read_bytes())
+        workflow = yaml.load((ROOT / ".github/workflows/release.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        self.assertNotIn("PYTHONDONTWRITEBYTECODE", workflow["env"])
+        for name in ("bash", "grep", "head", "sed"):
+            (self.tools / name).symlink_to("/bin/bash" if name == "bash" else shutil.which(name))
+        for name in ("lipo", "security", "codesign", "ditto", "hdiutil", "xcrun"):
+            tool = self.tools / name
+            tool.write_text(NATIVE_STUB.replace("PYTHON", sys.executable))
+            tool.chmod(0o755)
+        native_log = self.root / "native.jsonl"
+        env = {**self.env, **workflow["env"], "NATIVE_LOG": str(native_log),
+               "GITHUB_ENV": str(self.root / "github.env"), "VERSION": self.version,
+               "KEYCHAIN_PATH": str(self.root / "offline.keychain")}
+        for key in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONPATH",
+                    "PYTHONHOME", "PYTHONSTARTUP"):
+            env.pop(key, None)
+        probe = subprocess.run(
+            [str(self.tools / "python3"), "-c",
+             "import json,sys;print(json.dumps([sys.dont_write_bytecode,"
+             "sys.flags.dont_write_bytecode,sys.orig_argv]))"],
+            cwd=self.local, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        setting, flag, argv = json.loads(probe.stdout)
+        self.assertIs(setting, False)
+        self.assertEqual(flag, 0)
+        self.assertNotIn("-B", argv)
+        for name in release.asset_names(self.version):
+            (self.local / name).unlink()
+        for name in ("verify universal binary", "merge Windows binaries into the bundle",
+                     "codesign", "package, notarize & staple"):
+            step = next(s for s in workflow["jobs"]["build-macos"]["steps"]
+                        if s.get("name") == name)
+            self.assertNotIn("PYTHONDONTWRITEBYTECODE", step.get("env", {}))
+            result = subprocess.run(
+                ["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+                cwd=self.local, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(self.local.rglob("__pycache__")), [])
+            self.assertEqual(list(self.local.rglob("*.pyc")), [])
+            self.assertEqual(self.calls(), [])
+        retained = {str(path.relative_to(self.local)): path.read_bytes()
+                    for path in (self.local / native.BUNDLE).rglob("*") if path.is_file()}
+        retained.update({name: (self.local / name).read_bytes()
+                         for name in (*generated, *release.asset_names(self.version))})
+        result = subprocess.run(
+            [str(self.tools / "python3"), ".github/scripts/release.py", "publish",
+             "--sha", self.sha, *release.asset_names(self.version)],
+            cwd=self.local, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.calls())
+        self.assertEqual(list(self.local.rglob("__pycache__")), [])
+        self.assertEqual(list(self.local.rglob("*.pyc")), [])
+        for name, raw in retained.items():
+            self.assertEqual((self.local / name).read_bytes(), raw)
+        for name, raw in self.baseline.items():
+            self.assertEqual((self.local / name).read_bytes(), raw)
+        calls = [json.loads(line) for line in native_log.read_text().splitlines()]
+        self.assertEqual(sum(call[:3] == ["xcrun", "notarytool", "submit"]
+                             for call in calls), 2)
+        self.assertTrue(any(call[:3] == ["xcrun", "stapler", "staple"] for call in calls))
+
     def test_actual_cli_ignored_xcode_database_retained_without_relaxing_source_guards(self):
         self.assertEqual(self.command("preflight").returncode, 0)
         self.reset_api()
@@ -472,6 +538,18 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 
     def test_windows_only_regular_mode_tolerance_and_raw_index_type_reparse_matrix(self):
         self.windows_checkout()
+        self.assert_windows_matrix()
+
+    def assert_windows_matrix(self, global_fixture=None):
+        def positive():
+            result = self.windows_preflight()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(self.calls()), 2)
+            self.reset_api()
+            if global_fixture:
+                path, raw = global_fixture
+                self.assertEqual(path.read_bytes(), raw)
+
         result = self.windows_preflight()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls()), 2)
@@ -482,15 +560,23 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         for platform in ("darwin", "linux"):
             self.assertNotEqual(self.windows_preflight(platform=platform).returncode, 0)
             self.assertEqual(self.calls(), [])
+            positive()
         target = self.local / "native.cpp"
         raw = target.read_bytes()
         for kind in ("raw", "staged", "reversed", "indexmode",
-                     "assume-unchanged", "skip-worktree"):
+                     "assume-unchanged", "skip-worktree", "fsmonitor-valid"):
             with self.subTest(kind=kind):
                 if kind == "indexmode":
                     self.git("update-index", "--chmod=-x", "--", "native.cpp")
-                elif kind in ("assume-unchanged", "skip-worktree"):
+                elif kind in ("assume-unchanged", "skip-worktree", "fsmonitor-valid"):
+                    if kind == "fsmonitor-valid":
+                        self.git("config", "core.fsmonitor", "true")
                     self.git("update-index", "--" + kind, "--", "native.cpp")
+                    if kind == "fsmonitor-valid":
+                        self.assertEqual(self.git("ls-files", "-v", "--", "native.cpp"),
+                                         "H native.cpp")
+                        self.assertEqual(self.git("ls-files", "-f", "--", "native.cpp"),
+                                         "h native.cpp")
                 else:
                     target.write_bytes(raw + b" altered")
                     if kind in ("staged", "reversed"):
@@ -499,26 +585,36 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                         target.write_bytes(raw)
                 self.assertNotEqual(self.windows_preflight().returncode, 0)
                 self.assertEqual(self.calls(), [])
-                if kind in ("assume-unchanged", "skip-worktree"):
+                if kind == "fsmonitor-valid":
+                    self.git("config", "core.fsmonitor", "false")
+                    self.git("update-index", "--no-fsmonitor-valid", "--",
+                             *self.git("ls-files").splitlines())
+                elif kind in ("assume-unchanged", "skip-worktree"):
                     self.git("update-index", "--no-" + kind, "--", "native.cpp")
                 target.write_bytes(raw)
                 self.git("add", "--", "native.cpp")
                 self.git("update-index", "--chmod=+x", "--", "native.cpp")
+                positive()
         outside = self.root / "same-bytes.cpp"
         outside.write_bytes(raw)
         target.unlink()
         target.symlink_to(outside)
         self.assertNotEqual(self.windows_preflight().returncode, 0)
+        self.assertEqual(self.calls(), [])
+        target.unlink()
+        target.write_bytes(raw)
+        positive()
         target.unlink()
         target.mkdir()
         self.assertNotEqual(self.windows_preflight().returncode, 0)
+        self.assertEqual(self.calls(), [])
         target.rmdir()
         target.write_bytes(raw)
-        self.assertNotEqual(self.windows_preflight(reparse="native.cpp").returncode, 0)
-        self.assertNotEqual(self.windows_preflight(reparse=".github").returncode, 0)
-        self.assertEqual(self.calls(), [])
-        result = self.windows_preflight()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        positive()
+        for reparse in ("native.cpp", ".github"):
+            self.assertNotEqual(self.windows_preflight(reparse=reparse).returncode, 0)
+            self.assertEqual(self.calls(), [])
+            positive()
 
     def test_actual_clone_hostile_fixture_global_before_checkout_false_and_late_negative(self):
         self.windows_checkout()
@@ -573,6 +669,9 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 self.assertEqual(self.calls(), [])
             self.log.unlink(missing_ok=True)
             self.assertEqual(host.read_bytes(), raw)
+            if before:
+                self.assert_windows_matrix(global_fixture=(host, raw))
+                self.assertEqual(host.read_bytes(), raw)
         self.local, self.env = original_local, original_env
 
     def test_extracted_windows_source_preflight_actual_cli_inherits_workflow_checkout_config(self):

@@ -93,6 +93,14 @@ regular nonsymlink file; compiled metadata, exact copied source resources and
 downloaded-versus-merged Windows bytes are revalidated. Unsigned and final
 signature gates are separate. No reset is used to fake a clean native build.
 
+Direct native-helper processes disable bytecode writes before importing local
+metadata code, independently of workflow or runner environment. The regression
+runs extracted native workflow commands with real source/compiled metadata and
+bytecode environment flags explicitly absent, then the real final publication
+CLI. The hostile-global actual-clone regression also runs the complete Windows
+mode/raw/index/hidden-flag/type/reparse and non-Windows negative matrix on the
+cloned checkout, with restored positives and unchanged fixture-global bytes.
+
 ## Offline regression suite
 
 Run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v` and
