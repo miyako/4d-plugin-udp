@@ -62,21 +62,32 @@ void PluginMain(PA_long32 selector, PA_PluginParameters params) {
 #define STR31LEN 32
 #define SUPPORT_IPv6 0
 #if VERSIONMAC
+// Preserve the original limited-broadcast path as a fallback.
+static int sendLimitedIPv4Broadcast(sock_t sock, const char *msg, size_t length, int port) {
+    struct sockaddr_in destination;
+    memset(&destination, 0, sizeof(destination));
+    destination.sin_len = sizeof(destination);
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(port);
+    destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    ssize_t result = sendto(sock, msg, length, 0,
+                            reinterpret_cast<struct sockaddr *>(&destination),
+                            sizeof(destination));
+    return result == static_cast<ssize_t>(length) ? 1 : -1;
+}
+
 // Send the legacy discovery packet on every active IPv4 broadcast interface.
-// The limited broadcast address (255.255.255.255) can be routed through only
-// one interface, missing servers reachable through other active interfaces.
+// Apple recommends this for custom UDP discovery when Bonjour isn't usable.
 static int sendIPv4Broadcasts(sock_t sock, const char *msg, size_t length, int port) {
     struct ifaddrs *interfaces = NULL;
     if (getifaddrs(&interfaces) != 0) {
-        return -1;
+        return sendLimitedIPv4Broadcast(sock, msg, length, port);
     }
 
     int sent = 0;
     for (struct ifaddrs *ifa = interfaces; ifa != NULL; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr == NULL || ifa->ifa_broadaddr == NULL) {
-            continue;
-        }
-        if (ifa->ifa_addr->sa_family != AF_INET ||
+        if (ifa->ifa_addr == NULL || ifa->ifa_broadaddr == NULL ||
+            ifa->ifa_addr->sa_family != AF_INET ||
             ifa->ifa_broadaddr->sa_family != AF_INET) {
             continue;
         }
@@ -86,13 +97,13 @@ static int sendIPv4Broadcasts(sock_t sock, const char *msg, size_t length, int p
             continue;
         }
 
-        const struct sockaddr_in *interfaceBroadcast =
+        const struct sockaddr_in *broadcastAddress =
             reinterpret_cast<const struct sockaddr_in *>(ifa->ifa_broadaddr);
-        if (interfaceBroadcast->sin_addr.s_addr == htonl(INADDR_ANY)) {
+        if (broadcastAddress->sin_addr.s_addr == htonl(INADDR_ANY)) {
             continue;
         }
 
-        struct sockaddr_in destination = *interfaceBroadcast;
+        struct sockaddr_in destination = *broadcastAddress;
         destination.sin_len = sizeof(destination);
         destination.sin_port = htons(port);
         ssize_t result = sendto(sock, msg, length, 0,
@@ -104,26 +115,9 @@ static int sendIPv4Broadcasts(sock_t sock, const char *msg, size_t length, int p
     }
 
     freeifaddrs(interfaces);
-
-    // Retain the old limited-broadcast behavior if no interface send worked.
-    if (sent == 0) {
-        struct sockaddr_in destination;
-        memset(&destination, 0, sizeof(destination));
-        destination.sin_len = sizeof(destination);
-        destination.sin_family = AF_INET;
-        destination.sin_port = htons(port);
-        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-        ssize_t result = sendto(sock, msg, length, 0,
-                                reinterpret_cast<struct sockaddr *>(&destination),
-                                sizeof(destination));
-        if (result == static_cast<ssize_t>(length)) {
-            ++sent;
-        }
-    }
-    return sent;
+    return sent > 0 ? sent : sendLimitedIPv4Broadcast(sock, msg, length, port);
 }
 #endif
-
 
 static void receivePayloadFromServer(char *buf, void *remaddr, PA_CollectionRef returnValue, BOOL ipv6 = false) {
     
