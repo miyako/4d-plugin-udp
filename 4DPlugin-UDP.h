@@ -27,6 +27,8 @@
 #if VERSIONMAC
 #include <getopt.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #else
 #define option option_a
 #define getopt_long getopt_long_a
